@@ -1,0 +1,152 @@
+---
+title: "HR- Attrition Prediction"
+author: "Soumonos Mukherjee"
+date: "02/06/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Library Installation 
+```{r,echo=TRUE}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(adabag)
+library(xgboost)
+library(psych)
+library(ROCR)
+```
+## Dataset loading
+```{r,echo=TRUE}
+getwd()
+setwd(dir = "C:/Users/User/Documents/Predictive analyitics")
+getwd()
+df <- read.csv("HR-Attrition.csv")
+summary(df)
+```
+## Converting the categorical variables ( described formerly as numerical) into Factors and dropping redundant columns:
+```{r, echo=TRUE}
+names<- c("Education","Attrition","EnvironmentSatisfaction","JobInvolvement","JobLevel","JobSatisfaction","NumCompaniesWorked","PerformanceRating",
+  "RelationshipSatisfaction","StockOptionLevel","TrainingTimesLastYear","WorkLifeBalance")
+df[,names]<- lapply(df[,names],factor)
+summary(df)
+
+dfn<- select(df,-c("StandardHours","Over18","EmployeeNumber","EmployeeCount"))
+
+```
+## Train-Test split (We use Test Dataset as the validation set also)
+```{r, echo=TRUE}
+set.seed(1234)
+ind<- sample(2, nrow(dfn), replace=TRUE, prob=c(0.8,0.2)) 
+training <- dfn[ind==1,]
+testing <- dfn[ind==2,]
+y_train <- training[,2]
+x_train <- training[,-2]
+x_test <- testing[,-2]
+y_test<- testing[,2]
+
+```
+## Predictive Modelling:
+
+## Random Forest: Tuning with TuneRF
+```{r, echo=TRUE}
+bestmtry <- tuneRF(x_train, y_train,stepFactor = 1.5,improve = 1e-5,ntree=500)
+
+```
+## Random Forest: Using the best value of mtry derived as 4 and implementing the model
+```{r, echo=TRUE}
+modelrf <- randomForest(x_train,y_train,ntree = 500, mtry = 5, importance = TRUE)
+modelrf
+
+pred= predict(modelrf,training)
+pred1= predict(modelrf,testing)
+confusionMatrix(testing$Attrition,pred1)
+pred= predict(modelrf,training)
+pred1= predict(modelrf,testing)
+confusionMatrix(testing$Attrition,pred1)
+
+importancerf <-round(importance(modelrf),2)
+newimp <-data.frame(importancerf)
+print(newimp)
+plot(newimp$MeanDecreaseAccuracy)
+
+postResample(pred1,testing$Attrition)
+plot(modelrf)
+```
+## Random Forest:Tuning further with Grid Search for better Kappa value in test set:
+```{r,echo=TRUE}
+control <- trainControl(method='repeatedcv',number=10, repeats=3,search='grid')
+tunegrid <- expand.grid(.mtry=(1:15))
+rf_grid <- train(Attrition ~.,data = training,method='rf',metric='Accuracy',tuneGrid=tunegrid)
+print(rf_grid)
+plot(rf_grid)
+
+```
+## Random Forest:Tuning further with Random Search for better Kappa value in test set:
+```{r, echo=TRUE}
+controlrand <- trainControl(method='repeatedcv',number=10, repeats=3,search='random')
+set.seed(2)
+mtry <- sqrt(ncol(x_train))
+rf_random <- train(Attrition ~.,data = training,method='rf',metric='Accuracy',tuneLength=15,trControl=controlrand)
+print(rf_random)
+plot(rf_random)
+```
+## XGBoost: Gradient Boosted Tree:
+```{r, echo=TRUE}
+controlxg <- trainControl(method='repeatedcv',number=10, repeats=3)
+modelxgcv <- train(Attrition ~., data=training, method='xgbTree',trControl=controlxg)
+# Plotting the model
+plot(modelxgcv)
+predxg <- predict(modelxg,testing)
+mean(predxg==testing$Attrition)
+postResample(predxg,testing$Attrition)
+#Plotting the variable importance
+impxg <-varImp(modelxg)
+plot(impxg)
+
+```
+## Trying Logistic Regression without cross validation (GLM):
+```{r, echo=TRUE}
+modellogr= glm(formula=Attrition ~.,data = training,family = binomial)
+summary(modellogr)
+anova(modellogr,test = "Chisq")
+modellogr$aic
+predlr= predict(modellogr, testing, type = "response")
+binpred= ifelse(predlr>0.5,"Yes","No")
+mean(binpred == testing$Attrition)
+postResample(binpred,testing$Attrition)
+plot(modellogr)
+```
+##Plotting the ROC and calculating AUC for Logistic Regression:
+```{r, echo=TRUE}
+pr<- prediction(predlr, testing$Attrition)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+```
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
